@@ -2,31 +2,27 @@ import "./Avatar.css";
 import * as SpeechSDK from "microsoft-cognitiveservices-speech-sdk";
 import { createAvatarSynthesizer, createWebRTCConnection } from "./Utility";
 import { avatarAppConfig } from "./config";
-import { useState } from "react";
-import { useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 export const Avatar = () => {
-    
     const [avatarSynthesizer, setAvatarSynthesizer] = useState(null);
     const myAvatarVideoEleRef = useRef();
     const myAvatarAudioEleRef = useRef();
     const [mySpeechText, setMySpeechText] = useState("");
-    
-    var iceUrl = avatarAppConfig.iceUrl
-    var iceUsername = avatarAppConfig.iceUsername
-    var iceCredential = avatarAppConfig.iceCredential
+
+    var iceUrl = avatarAppConfig.iceUrl;
+    var iceUsername = avatarAppConfig.iceUsername;
+    var iceCredential = avatarAppConfig.iceCredential;
 
     const handleSpeechText = (event) => {
         setMySpeechText(event.target.value);
     }
 
-
     const handleOnTrack = (event) => {
+        console.log("#### Printing handle onTrack ", event);
 
-        console.log("#### Printing handle onTrack ",event);
-    
         // Update UI elements
-        console.log("Printing event.track.kind ",event.track.kind);
+        console.log("Printing event.track.kind ", event.track.kind);
         if (event.track.kind === 'video') {
             const mediaPlayer = myAvatarVideoEleRef.current;
             mediaPlayer.id = event.track.kind;
@@ -34,46 +30,40 @@ export const Avatar = () => {
             mediaPlayer.autoplay = true;
             mediaPlayer.playsInline = true;
             mediaPlayer.addEventListener('play', () => {
-            window.requestAnimationFrame(()=>{});
-          });
+                window.requestAnimationFrame(() => { });
+            });
         } else {
-          // Mute the audio player to make sure it can auto play, will unmute it when speaking
-          // Refer to https://developer.mozilla.org/en-US/docs/Web/Media/Autoplay_guide
-          //const mediaPlayer = myAvatarVideoEleRef.current;
-          const audioPlayer = myAvatarAudioEleRef.current;
-          audioPlayer.srcObject = event.streams[0];
-          audioPlayer.autoplay = true;
-          audioPlayer.playsInline = true;
-          audioPlayer.muted = true;
+            const audioPlayer = myAvatarAudioEleRef.current;
+            audioPlayer.srcObject = event.streams[0];
+            audioPlayer.autoplay = true;
+            audioPlayer.playsInline = true;
+            audioPlayer.muted = true;
         }
-      };
+    };
 
     const stopSpeaking = () => {
         avatarSynthesizer.stopSpeakingAsync().then(() => {
-          console.log("[" + (new Date()).toISOString() + "] Stop speaking request sent.")
-    
+            console.log("[" + (new Date()).toISOString() + "] Stop speaking request sent.")
         }).catch();
-    }  
+    }
 
     const stopSession = () => {
-
-        try{
-          //Stop speaking
-          avatarSynthesizer.stopSpeakingAsync().then(() => {
-            console.log("[" + (new Date()).toISOString() + "] Stop speaking request sent.")
-            // Close the synthesizer
-            avatarSynthesizer.close();
-          }).catch();
-        }catch(e) {
+        try {
+            // Stop speaking
+            avatarSynthesizer.stopSpeakingAsync().then(() => {
+                console.log("[" + (new Date()).toISOString() + "] Stop speaking request sent.")
+                // Close the synthesizer
+                avatarSynthesizer.close();
+            }).catch();
+        } catch (e) {
         }
-      }
+    }
 
     const speakSelectedText = () => {
-
-        //Start speaking the text
+        // Start speaking the text
         const audioPlayer = myAvatarAudioEleRef.current;
-        console.log("Audio muted status ",audioPlayer.muted);
-        audioPlayer.muted = false;        
+        console.log("Audio muted status ", audioPlayer.muted);
+        audioPlayer.muted = false;
         avatarSynthesizer.speakTextAsync(mySpeechText).then(
             (result) => {
                 if (result.reason === SpeechSDK.ResultReason.SynthesizingAudioCompleted) {
@@ -88,77 +78,62 @@ export const Avatar = () => {
                         }
                     }
                 }
-        }).catch((error) => {
-            console.log(error)
-            avatarSynthesizer.close()
-        });
+            }).catch((error) => {
+                console.log(error)
+                avatarSynthesizer.close()
+            });
     }
 
-    const startSession = () => {
+    useEffect(() => {
+        const startSession = () => {
+            let peerConnection = createWebRTCConnection(iceUrl, iceUsername, iceCredential);
+            console.log("Peer connection ", peerConnection);
+            peerConnection.ontrack = handleOnTrack;
+            peerConnection.addTransceiver('video', { direction: 'sendrecv' })
+            peerConnection.addTransceiver('audio', { direction: 'sendrecv' })
 
-        let peerConnection = createWebRTCConnection(iceUrl,iceUsername, iceCredential);
-        console.log("Peer connection ",peerConnection);
-        peerConnection.ontrack = handleOnTrack;
-        peerConnection.addTransceiver('video', { direction: 'sendrecv' })
-        peerConnection.addTransceiver('audio', { direction: 'sendrecv' })
-        
-        let avatarSynthesizer = createAvatarSynthesizer();
-        setAvatarSynthesizer(avatarSynthesizer);
-        peerConnection.oniceconnectionstatechange = e => {
-            console.log("WebRTC status: " + peerConnection.iceConnectionState)
-    
-            if (peerConnection.iceConnectionState === 'connected') {
-                console.log("Connected to Azure Avatar service");
+            let avatarSynthesizer = createAvatarSynthesizer();
+            setAvatarSynthesizer(avatarSynthesizer);
+            peerConnection.oniceconnectionstatechange = e => {
+                console.log("WebRTC status: " + peerConnection.iceConnectionState)
+
+                if (peerConnection.iceConnectionState === 'connected') {
+                    console.log("Connected to Azure Avatar service");
+                }
+
+                if (peerConnection.iceConnectionState === 'disconnected' || peerConnection.iceConnectionState === 'failed') {
+                    console.log("Azure Avatar service Disconnected");
+                }
             }
-    
-            if (peerConnection.iceConnectionState === 'disconnected' || peerConnection.iceConnectionState === 'failed') {
-                console.log("Azure Avatar service Disconnected");
-            }
+
+            avatarSynthesizer.startAvatarAsync(peerConnection).then((r) => {
+                console.log("[" + (new Date()).toISOString() + "] Avatar started.")
+            }).catch(
+                (error) => {
+                    console.log("[" + (new Date()).toISOString() + "] Avatar failed to start. Error: " + error)
+                }
+            );
         }
-    
-        avatarSynthesizer.startAvatarAsync(peerConnection).then((r) => {
-            console.log("[" + (new Date()).toISOString() + "] Avatar started.")
-    
-        }).catch(
-            (error) => {
-                console.log("[" + (new Date()).toISOString() + "] Avatar failed to start. Error: " + error)
-            }
-        );
-    }
 
+        startSession();
 
+        return () => {
+            stopSession();
+        };
+    }, []);
 
-    return(
+    return (
         <div className="container myAvatarContainer">
             <p className="myAvatarDemoText">Azure Avatar Demo</p>
             <div className="container myAvatarVideoRootDiv d-flex justify-content-around">
-                <div  className="myAvatarVideo">
+                <div className="myAvatarVideo">
                     <div id="myAvatarVideo" className="myVideoDiv">
-                        
-                        <video className="myAvatarVideoElement" ref={myAvatarVideoEleRef}>
-
-                        </video>
-
-                        <audio ref={myAvatarAudioEleRef}>
-
-                        </audio>
-                    </div>
-                    <div className="myButtonGroup d-flex justify-content-around">
-                        <button className="btn btn-success"
-                            onClick={startSession}>
-                            Connect
-                        </button>
-                        <button className="btn btn-danger"
-                            onClick={stopSession}>
-                            Disconnect
-                        </button>
+                        <video className="myAvatarVideoElement" ref={myAvatarVideoEleRef}></video>
+                        <audio ref={myAvatarAudioEleRef}></audio>
                     </div>
                 </div>
                 <div className="myTextArea">
-                    
-                    <textarea className="myTextArea" onChange={handleSpeechText}>
-
-                    </textarea>
+                    <textarea className="myTextArea" onChange={handleSpeechText}></textarea>
                     <div className="myButtonGroup d-flex justify-content-around">
                         <button className="btn btn-success" onClick={speakSelectedText}>
                             Speak
@@ -170,5 +145,5 @@ export const Avatar = () => {
                 </div>
             </div>
         </div>
-    )
+    );
 }
